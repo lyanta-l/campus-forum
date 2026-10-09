@@ -43,3 +43,6 @@ spring:
     endpoint: 'http://localhost:9000'
     username: 'minio'
     password: 'password'
+  weather:
+    key: 793f4988cbf845e687dce772aa897e3f
+    host: mc76xberd2.re.qweatherapi.com
