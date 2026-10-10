@@ -8,7 +8,7 @@ import {
   Back,
   Bell,
   ChatDotSquare, Collection, DataLine,
-  Document,
+  Document,Files,
   Location, Lock, Message, Monitor,
   Notification, Operation,
   Position,

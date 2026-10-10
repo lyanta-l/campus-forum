@@ -6,7 +6,7 @@ import Weather from "@/components/Weather.vue";
 import {computed, reactive, ref} from "vue";
 import {get} from "@/net";
 import {ElMessage} from "element-plus";
-import TopicEdit from "@/components/TopicEdit.vue";
+import TopicEditor from "@/components/TopicEditor.vue";
 
 const weather = reactive({
     location: {},
@@ -113,7 +113,7 @@ navigator.geolocation.getCurrentPosition((position) => {
                 </div>
             </div>
         </div>
-        <topic-edit :show="editor" @close="editor = false"/>
+        <topic-editor :show="editor" @close="editor = false"/>
     </div>
 </template>
 
