@@ -18,9 +18,13 @@ import com.example.utils.FlowUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -43,6 +47,9 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
 
     @Resource
     AccountPrivacyMapper accountPrivacyMapper;
+
+    @Resource
+    StringRedisTemplate template;
 
     private Set<Integer> types = null;
 
@@ -84,13 +91,13 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
     @Override
     public List<TopicPreviewVO> listTopicByPage(int pageNumber, int type) {
         String key = Const.FORUM_TOPIC_PREVIEW_CACHE + pageNumber + ":" + type;
-        List<TopicPreviewVO> list = cacheUtils.takeListFromCache(key,TopicPreviewVO.class);
+        List<TopicPreviewVO> list = cacheUtils.takeListFromCache(key, TopicPreviewVO.class);
         if (list != null) return list;
-        Page<Topic> page = Page.of(pageNumber,10);
+        Page<Topic> page = Page.of(pageNumber, 10);
         if (type == 0)
-            baseMapper.selectPage(page,Wrappers.<Topic>query().orderByDesc("time"));
+            baseMapper.selectPage(page, Wrappers.<Topic>query().orderByDesc("time"));
         else
-            baseMapper.selectPage(page,Wrappers.<Topic>query().eq("type",type).orderByDesc("time"));
+            baseMapper.selectPage(page, Wrappers.<Topic>query().eq("type", type).orderByDesc("time"));
         List<Topic> topics = page.getRecords();
         if (topics.isEmpty()) return null;
         list = topics.stream().map(this::resolveToPreview).toList();
@@ -101,8 +108,8 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
     @Override
     public List<TopicTopVO> listTopTopics() {
         List<Topic> topics = baseMapper.selectList(Wrappers.<Topic>query()
-                .select("id","title","time")
-                .eq("top",1));
+                .select("id", "title", "time")
+                .eq("top", 1));
         return topics.stream().map(topic -> {
             TopicTopVO vo = new TopicTopVO();
             BeanUtils.copyProperties(topic, vo);
@@ -115,9 +122,63 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
         TopicDetailVO vo = new TopicDetailVO();
         Topic topic = baseMapper.selectById(tid);
         BeanUtils.copyProperties(topic, vo);
+        TopicDetailVO.Interact interact = new TopicDetailVO.Interact(
+                hasInteract(tid,topic.getUid(),"like"),
+                hasInteract(tid,topic.getUid(),"collect")
+        );
+        vo.setInteract(interact);
         TopicDetailVO.User user = new TopicDetailVO.User();
-        vo.setUser(this.fillUserDetailsByPrivacy(user,topic.getUid()));
+        vo.setUser(this.fillUserDetailsByPrivacy(user, topic.getUid()));
         return vo;
+    }
+
+
+    @Override
+    public void interact(Interact interact, boolean state) {
+        String type = interact.getType();
+        synchronized (type.intern()) {
+            template.opsForHash().put(type, interact.toKey(), Boolean.toString(state));
+            this.saveInteractSchedule(type);
+        }
+    }
+
+    private boolean hasInteract(int tid, int uid, String type) {
+        String key = tid + ":" + uid;
+        if (template.opsForHash().hasKey(type, key)) {
+            return Boolean.parseBoolean(template.opsForHash().entries(type).get(key).toString());
+        }
+        return baseMapper.userInteractCount(tid,uid,type) > 0;
+    }
+
+    private final Map<String, Boolean> state = new HashMap<>();
+    ScheduledExecutorService service = Executors.newScheduledThreadPool(2);
+
+    private void saveInteractSchedule(String type) {
+        if (!state.getOrDefault(type, false)) {
+            state.put(type, true);
+            service.schedule(() -> {
+                this.saveInteract(type);
+                state.put(type, false);
+            }, 3, TimeUnit.SECONDS);
+        }
+    }
+
+    private void saveInteract(String type) {
+        synchronized (type.intern()) {
+            List<Interact> check = new LinkedList<>();
+            List<Interact> uncheck = new LinkedList<>();
+            template.opsForHash().entries(type).forEach((k, v) -> {
+                if (Boolean.parseBoolean(v.toString()))
+                    check.add(Interact.parseInteract(k.toString(), type));
+                else
+                    uncheck.add(Interact.parseInteract(k.toString(), type));
+            });
+            if (!check.isEmpty())
+                baseMapper.addInteract(check, type);
+            if (!uncheck.isEmpty())
+                baseMapper.deleteInteract(uncheck, type);
+            template.delete(type);
+        }
     }
 
     private <T> T fillUserDetailsByPrivacy(T target, int uid) {
@@ -136,6 +197,8 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
         TopicPreviewVO vo = new TopicPreviewVO();
         BeanUtils.copyProperties(accountMapper.selectById(topic.getUid()), vo);
         BeanUtils.copyProperties(topic, vo);
+        vo.setLike(baseMapper.interactCount(topic.getId(),"like"));
+        vo.setCollect(baseMapper.interactCount(topic.getId(),"collect"));
         List<String> images = new ArrayList<>();
         StringBuilder previewText = new StringBuilder();
         JSONArray ops = JSONObject.parseObject(topic.getContent()).getJSONArray("ops");
