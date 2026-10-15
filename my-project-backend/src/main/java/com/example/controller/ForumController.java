@@ -2,6 +2,7 @@ package com.example.controller;
 
 import com.example.entity.RestBean;
 import com.example.entity.dto.Interact;
+import com.example.entity.vo.request.AddCommentVO;
 import com.example.entity.vo.request.TopicCreateVO;
 import com.example.entity.vo.request.TopicUpdateVO;
 import com.example.entity.vo.response.*;
@@ -68,7 +69,7 @@ public class ForumController {
     @GetMapping("/topic")
     public RestBean<TopicDetailVO> topic(@RequestParam @Min(0) int tid,
                                          @RequestAttribute(Const.ATTR_USER_ID) int id) {
-        return RestBean.success(topicService.getTopic(tid,id));
+        return RestBean.success(topicService.getTopic(tid, id));
     }
 
     @GetMapping("/interact")
@@ -76,7 +77,7 @@ public class ForumController {
                                    @RequestParam @Pattern(regexp = "(like|collect)") String type,
                                    @RequestParam boolean state,
                                    @RequestAttribute(Const.ATTR_USER_ID) int id) {
-        topicService.interact(new Interact(tid,id,new Date(),type),state);
+        topicService.interact(new Interact(tid, id, new Date(), type), state);
         return RestBean.success();
     }
 
@@ -87,7 +88,19 @@ public class ForumController {
 
     @PostMapping("/update-topic")
     public RestBean<Void> updateTopic(@Valid @RequestBody TopicUpdateVO vo,
-                                      @RequestAttribute(Const.ATTR_USER_ID) int id){
+                                      @RequestAttribute(Const.ATTR_USER_ID) int id) {
         return utils.messageHandle(() -> topicService.updateTopic(id, vo));
+    }
+
+    @PostMapping("/add-comment")
+    public RestBean<Void> addComment(@Valid @RequestBody AddCommentVO vo,
+                                     @RequestAttribute(Const.ATTR_USER_ID) int id) {
+        return utils.messageHandle(() -> topicService.createComment(id, vo));
+    }
+
+    @GetMapping("/comments")
+    public RestBean<List<CommentVO>> comments(@RequestParam @Min(0) int tid,
+                                              @RequestParam @Min(0) int page) {
+        return RestBean.success(topicService.comments(tid, page + 1));
     }
 }
